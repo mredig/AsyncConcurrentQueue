@@ -2,84 +2,70 @@ import XCTest
 @testable import AsyncConcurrentQueue
 
 final class AsyncConcurrentQueueTests: XCTestCase {
-    func testFutureTaskRun() async throws {
-		let exp = expectation(description: "ran")
-		let futureTask = FutureTask(priority: .low) {
-			print("Waited until called")
-			exp.fulfill()
-			return true
+
+    func testQueueItems() async throws {
+		let queue = AsyncConcurrentQueue()
+
+		let counter = AtomicWrapper(value: [Int]())
+
+//		await queue.setMaximumConcurrentTasks(10)
+		let iterations = 20
+		for i in 1...iterations {
+			let task = await queue.queueTask {
+				print("starting \(i)")
+				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
+				print("finishing \(i)")
+				return i
+			}
+
+			Task {
+				let value = try await task.value
+				var arr = counter.value
+				arr.append(value)
+				counter.setValue(arr)
+			}
 		}
 
-		futureTask.activate()
-		wait(for: [exp], timeout: 10)
-
-		let value = try await futureTask.value
-		XCTAssertTrue(value)
-    }
-
-	func testFutureTaskDetachedRun() async throws {
-		let exp = expectation(description: "ran")
-		let futureTask = FutureTask(priority: .low, detached: true) {
-			print("Waited until called")
-			exp.fulfill()
-			return true
+		while counter.value.count < iterations {
+			try await Task.sleep(nanoseconds: 1_000_000)
 		}
 
-		futureTask.activate()
-		wait(for: [exp], timeout: 10)
-
-		let value = try await futureTask.value
-		XCTAssertTrue(value)
+		XCTAssertEqual(counter.value, counter.value.sorted())
 	}
+}
 
-	func testFutureTaskCancellation() async throws {
-		let exp = expectation(description: "ran")
-		let canceller = FutureTask(
-			operation: {
-				return true
-			},
-			onCancellation: {
-				exp.fulfill()
-			})
-
-		canceller.cancel()
-		wait(for: [exp], timeout: 10)
-
-		let result = await canceller.result
-		XCTAssertThrowsError(try result.get())
-	}
-
-	func testFutureTaskMultipleActivations() async throws {
-		let exp = expectation(description: "ran")
-		let futureTask = FutureTask(priority: .low) {
-			print("Waited until called")
-			exp.fulfill()
-			return true
+class AtomicWrapper<Element>: @unchecked Sendable {
+	private(set) var value: Element {
+		didSet {
+			blocks.forEach { $0(self) }
 		}
-
-		// will fail by way of multiple fulfills of expectations, if failed
-		futureTask.activate()
-		futureTask.activate()
-		futureTask.activate()
-		futureTask.activate()
-		wait(for: [exp], timeout: 10)
 	}
 
-	func testFutureTaskMultipleCancellations() async throws {
-		let exp = expectation(description: "ran")
-		let canceller = FutureTask(
-			operation: {
-				return true
-			},
-			onCancellation: {
-				exp.fulfill()
-			})
+	private let lock = NSLock()
 
-		// will fail by way of multiple fulfills of expectations, if failed
-		canceller.cancel()
-		canceller.cancel()
-		canceller.cancel()
-		canceller.cancel()
-		wait(for: [exp], timeout: 10)
+	private var blocks: [(AtomicWrapper<Element>) -> Void] = []
+
+	init(value: Element) {
+		self.value = value
+	}
+
+	func setValue(_ value: Element) {
+		lock.lock()
+		defer { lock.unlock() }
+
+		self.value = value
+	}
+
+	func onValueChange(_ block: @escaping (AtomicWrapper<Element>) -> Void) {
+		blocks.append(block)
+	}
+}
+
+extension AtomicWrapper where Element == Int {
+	func iterate() {
+		lock.lock()
+		defer { lock.unlock() }
+
+		value += 1
 	}
 }

@@ -1,5 +1,7 @@
 # AsyncConcurrentQueue
 
+[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fmredig%2FAsyncConcurrentQueue%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/mredig/AsyncConcurrentQueue) [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fmredig%2FAsyncConcurrentQueue%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/mredig/AsyncConcurrentQueue)
+
 A FIFO queuing system leveraging Swift's async/await structured concurrency. Also includes `FutureTask` which allows you to arbitrairily delay/start a task.
 
 ### Usage

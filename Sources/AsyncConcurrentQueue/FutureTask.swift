@@ -37,21 +37,35 @@ public class FutureTask<Success: Sendable>: @unchecked Sendable {
 	/// Creates a new `FutureTask`
 	/// - Parameters:
 	///   - priority: Priority of the task. Pass `nil` to use priority from `Task.currentPriority
+	///   - detached: Bool toggle to do `Task.detached` or not. Default `false`
 	///   - operation: The operation to perform
 	///   - onCancellation: The operation to perform upon cancellation
 	public init(
 		priority: TaskPriority? = nil,
+		detached: Bool = false,
 		operation: @escaping () async throws -> Success,
 		onCancellation: @escaping () -> Void = {}) {
 			self.onCancellation = onCancellation
 			lock.lock()
 			defer { lock.unlock() }
-			let buffer = Task(priority: priority) {
-				try await withCheckedThrowingContinuation {
-					setContinuation($0)
-				}
 
-				return try await operation()
+			let buffer: Task<Success, Error>
+			if detached {
+				buffer = Task.detached(priority: priority) { [self] in
+					try await withCheckedThrowingContinuation {
+						setContinuation($0)
+					}
+
+					return try await operation()
+				}
+			} else {
+				buffer = Task(priority: priority) {
+					try await withCheckedThrowingContinuation {
+						setContinuation($0)
+					}
+					
+					return try await operation()
+				}
 			}
 
 			self.task = buffer

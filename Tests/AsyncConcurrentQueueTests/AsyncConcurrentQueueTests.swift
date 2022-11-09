@@ -17,6 +17,21 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 		XCTAssertTrue(value)
     }
 
+	func testFutureTaskDetachedRun() async throws {
+		let exp = expectation(description: "ran")
+		let futureTask = FutureTask(priority: .low, detached: true) {
+			print("Waited until called")
+			exp.fulfill()
+			return true
+		}
+
+		futureTask.activate()
+		wait(for: [exp], timeout: 10)
+
+		let value = try await futureTask.value
+		XCTAssertTrue(value)
+	}
+
 	func testFutureTaskCancellation() async throws {
 		let exp = expectation(description: "ran")
 		let canceller = FutureTask(

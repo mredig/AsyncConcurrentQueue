@@ -43,7 +43,7 @@ Task {
 	}
 
 	// create a separate future task. It doesn't run right away, but also has a cancellation handler.
-	let canceller = FutureTask(
+	let canceller = FutureTask(
 		operation: {
 			print("Will never run")
 		},

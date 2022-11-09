@@ -30,6 +30,10 @@ public actor AsyncConcurrentQueue {
 	private var queuedTasks: [(id: UUID, task: QueuedTask)] = []
 
 	public init() {}
+
+	public func queueTaskWithResult<Success>(priority: TaskPriority? = nil, operation: @escaping () async throws -> Success) async throws -> Success {
+		try await queueTask(priority: priority, operation: operation).value
+	}
 	
 	/// Queues up a task. The task will be started immediately if `currentlyExecutingTasks` is fewer than `maximumConcurrentTasks`, otherwise it will wait in a queue in FIFO order.
 	/// - Parameters:

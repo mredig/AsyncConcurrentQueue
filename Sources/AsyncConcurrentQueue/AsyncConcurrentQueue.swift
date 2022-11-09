@@ -29,6 +29,7 @@ public actor AsyncConcurrentQueue {
 	private var taskBarriers: [UUID: FutureTask<Void>] = [:]
 	private var queuedTasks: [(id: UUID, task: QueuedTask)] = []
 
+	public init() {}
 	
 	/// Queues up a task. The task will be started immediately if `currentlyExecutingTasks` is fewer than `maximumConcurrentTasks`, otherwise it will wait in a queue in FIFO order.
 	/// - Parameters:

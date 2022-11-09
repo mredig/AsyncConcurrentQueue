@@ -25,7 +25,11 @@ public class FutureTask<Success: Sendable>: @unchecked Sendable {
 	/// If the task succeeded, .success with the task’s result as the associated value; otherwise, .failure with the error as the associated value.
 	public var result: Result<Success, Error> {
 		get async {
-			await task.result
+			if isCancelled {
+				return .failure(CancellationError())
+			} else {
+				return await task.result
+			}
 		}
 	}
 

@@ -11,7 +11,7 @@ final class FutureTaskTests: XCTestCase {
 		}
 
 		futureTask.activate()
-		wait(for: [exp], timeout: 10)
+		await fulfillment(of: [exp], timeout: 10, enforceOrder: true)
 
 		let value = try await futureTask.value
 		XCTAssertTrue(value)
@@ -26,7 +26,7 @@ final class FutureTaskTests: XCTestCase {
 		}
 
 		futureTask.activate()
-		wait(for: [exp], timeout: 10)
+		await fulfillment(of: [exp], timeout: 10, enforceOrder: true)
 
 		let value = try await futureTask.value
 		XCTAssertTrue(value)
@@ -43,7 +43,7 @@ final class FutureTaskTests: XCTestCase {
 			})
 
 		canceller.cancel()
-		wait(for: [exp], timeout: 10)
+		await fulfillment(of: [exp], timeout: 10, enforceOrder: true)
 
 		let result = await canceller.result
 		XCTAssertThrowsError(try result.get())
@@ -62,7 +62,7 @@ final class FutureTaskTests: XCTestCase {
 		futureTask.activate()
 		futureTask.activate()
 		futureTask.activate()
-		wait(for: [exp], timeout: 10)
+		await fulfillment(of: [exp], timeout: 10, enforceOrder: true)
 	}
 
 	func testFutureTaskMultipleCancellations() async throws {
@@ -80,6 +80,6 @@ final class FutureTaskTests: XCTestCase {
 		canceller.cancel()
 		canceller.cancel()
 		canceller.cancel()
-		wait(for: [exp], timeout: 10)
+		await fulfillment(of: [exp], timeout: 10, enforceOrder: true)
 	}
 }

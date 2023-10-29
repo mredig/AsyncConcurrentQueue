@@ -16,6 +16,9 @@ let package = Package(
         .library(
             name: "AsyncConcurrentQueue",
             targets: ["AsyncConcurrentQueue"]),
+		.library(
+			name: "AsyncQueue",
+			targets: ["AsyncQueue"])
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
@@ -27,8 +30,11 @@ let package = Package(
         .target(
             name: "AsyncConcurrentQueue",
             dependencies: []),
+		.target(
+			name: "AsyncQueue",
+			dependencies: []),
         .testTarget(
             name: "AsyncConcurrentQueueTests",
-            dependencies: ["AsyncConcurrentQueue"]),
+            dependencies: ["AsyncConcurrentQueue", "AsyncQueue"]),
     ]
 )

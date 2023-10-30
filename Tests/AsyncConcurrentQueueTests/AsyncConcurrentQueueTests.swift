@@ -1,10 +1,9 @@
 import XCTest
-@testable import AsyncConcurrentQueue
-import AsyncQueue
+import AsyncConcurrentQueue
 
 final class AsyncConcurrentQueueTests: XCTestCase {
 	func testQueueTasks() async throws {
-		let queue = AsyncQueue()
+		let queue = AsyncConcurrentQueue()
 
 		let startCounter = AtomicWrapper(value: [Int]())
 		let finishCounter = AtomicWrapper(value: [Int]())
@@ -45,7 +44,7 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 	}
 
 	func testConcurrentQueueTasks() async throws {
-		let queue = AsyncQueue()
+		let queue = AsyncConcurrentQueue()
 
 		let iterations = 20
 		queue.setMaximumConcurrentTasks(4)
@@ -69,7 +68,7 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 	}
 
 	func testCreateTasks() async throws {
-		let queue = AsyncQueue()
+		let queue = AsyncConcurrentQueue()
 
 		let startCounter = AtomicWrapper(value: [Int]())
 		let finishCounter = AtomicWrapper(value: [Int]())
@@ -109,7 +108,7 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 	}
 
 	func testCreateConcurrentTasks() async throws {
-		let queue = AsyncQueue()
+		let queue = AsyncConcurrentQueue()
 
 		let iterations = 20
 		queue.setMaximumConcurrentTasks(4)
@@ -135,7 +134,7 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 	}
 
 	func testConcurrentQueueItemsWithCancellations() async throws {
-		let queue = AsyncQueue()
+		let queue = AsyncConcurrentQueue()
 
 		let setCounter = AtomicWrapper(value: Set<Int>())
 

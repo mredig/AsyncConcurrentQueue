@@ -66,38 +66,31 @@ public class AsyncQueue {
 		}
 	}
 
-//	private func _doTheQueueTask<T>(_ task: () async throws -> T) async rethrows -> T {
-//		currentlyExecutingTasks += 1
-//		defer { currentlyExecutingTasks -= 1 }
-//		return try await task()
-//	}
+	public func createTask<T>(label: String? = nil, _ block: @escaping @Sendable () async throws -> T) async -> Task<T, Error> {
+		if canIncrementCurrentTasks(andDoIt: true) {
+			return Task {
+				defer { decrementCurrentTasks() }
+				let rVal = try await block()
+				return rVal
+			}
+		} else {
+			label.map { print("delaying \($0)") }
+			let delayTask = Task {
+				await withCheckedContinuation { continuation in
+					appendToContinuations(continuation)
+				}
+			}
+			let finalTask = Task {
+				_ = await delayTask.result
+				defer { decrementCurrentTasks() }
+				let rVal = try await block()
+				return rVal
+			}
 
-//	public func createTask<T>(_ block: @escaping @Sendable () async throws -> T) async -> Task<T, Error> {
-//		if currentlyExecutingTasks < maximumConcurrentTasks {
-//			currentlyExecutingTasks += 1
-//			let finalTask = Task {
-//				try await block()
-//			}
-//			Task {
-//				_ = await finalTask.result
-//				currentlyExecutingTasks -= 1
-//			}
-//			return finalTask
-//		} else {
-//			let delayTask = Task {
-//				await withCheckedContinuation { continuation in
-//					appendToContinuations(continuation)
-//				}
-//			}
-//			let finalTask = Task {
-//				_ = await delayTask.result
-//				return try await _doTheQueueTask(block)
-//			}
-//
-//			bumpQueue()
-//			return finalTask
-//		}
-//	}
+			bumpQueue()
+			return finalTask
+		}
+	}
 
 	private func appendToContinuations(_ continuation: CheckedContinuation<Void, Never>) {
 		asyncLock.lock()

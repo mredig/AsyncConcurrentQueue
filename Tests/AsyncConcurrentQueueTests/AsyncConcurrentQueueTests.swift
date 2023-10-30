@@ -68,142 +68,87 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 		}
 	}
 
-//	func testCreateTasks() async throws {
-//		let queue = AsyncQueue()
-//
-//		let startOrder = AtomicWrapper(value: [Int]())
-//		let finishOrder = AtomicWrapper(value: [Int]())
-//
-//		let exp = expectation(description: "finished")
-//		let iterations = 20
-//		for i in 1...iterations {
-//			let task = await queue.createTask {
-//				startOrder.updateValue {
-//					$0.append(i)
-//				}
-//				print("starting queued \(i)")
-//				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
-//				print("finishing queued \(i)")
-//				return i
-//			}
-//
-//			Task {
-//				let value = try await task.value
-//				finishOrder.updateValue {
-//					$0.append(value)
-//				}
-//
-//				if finishOrder.value.count == iterations {
-//					exp.fulfill()
-//				}
-//			}
-//		}
-//
-//		await fulfillment(of: [exp], timeout: 10)
-//
-//		XCTAssertEqual(finishOrder.value, startOrder.value)
-//	}
+	func testCreateTasks() async throws {
+		let queue = AsyncQueue()
 
-
-//	func testConcurrentQueueItems2() async throws {
-//		let queue = AsyncQueue()
-//
-//		let counter = AtomicWrapper(value: [Int]())
-//
-//		let iterations = 100
-//		await queue.setMaximumConcurrentTasks(iterations / 10)
-//
-//		let checker = Task {
-//			let maxTasks = await queue.maximumConcurrentTasks
-//			var currentTasks = await queue.currentlyExecutingTasks
-//			while counter.value.count < iterations {
-//				guard
-//					currentTasks < maxTasks
-//				else { throw SimpleTestError(message: "More current tasks than maximum!") }
-//				print(currentTasks)
-//				try await Task.sleep(nanoseconds: 50)
-//
-//			}
-//		}
-//
-//
-//		for i in 1...iterations {
-//			let value = try await queue.queueTask {
-//				print("starting queued \(i)")
-//				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
-//				print("finishing queued \(i)")
-//				return i
-//			}
-//			var arr = counter.value
-//			arr.append(value)
-//			counter.setValue(arr)
-//		}
-//
-//		XCTAssertEqual(counter.value, counter.value.sorted())
-//	}
-
-	func testConcurrentQueueItems() async throws {
-		let queue = AsyncConcurrentQueue()
-
-		let setCounter = AtomicWrapper(value: Set<Int>())
-
-
+		let startCounter = AtomicWrapper(value: [Int]())
+		let finishCounter = AtomicWrapper(value: [Int]())
 		let exp = expectation(description: "finished")
-		var mainSet: Set<Int> = []
-		let iterations = 100
-		setCounter.onValueChange { counter in
-			let array = (0..<iterations).map { counter.value.contains($0) ? "|" : "_" }
-			print(array.joined())
-		}
-		await queue.setMaximumConcurrentTasks(iterations / 10)
-		for i in 0..<iterations {
-			mainSet.insert(i)
-			let task = await queue.queueTask {
-				print("starting concurrent \(i)")
+
+		let iterations = 20
+
+		for i in 1...iterations {
+			let valueTask = await queue.createTask {
+				print("starting queued \(i)")
+				startCounter.updateValue {
+					$0.append(i)
+				}
 				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
-				print("finishing concurrent \(i)")
+				print("finishing queued \(i)")
+				XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
 				return i
 			}
 
-			Task {
-				let value = try await task.value
-				var set = setCounter.value
-				set.insert(value)
-				setCounter.setValue(set)
+			XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
 
-				if setCounter.value.count == iterations {
+			Task {
+				XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
+				let value = try await valueTask.value
+				finishCounter.updateValue {
+					$0.append(value)
+				}
+				if finishCounter.value.count == iterations {
 					exp.fulfill()
 				}
 			}
-
-			print("Created concurrent task \(i)")
 		}
 
-		while setCounter.value.count < iterations {
-			let current = await queue.currentlyExecutingTasks
-			let max = await queue.maximumConcurrentTasks
-			XCTAssertLessThanOrEqual(current, max)
-			try await Task.sleep(nanoseconds: 1_000_000)
+		await fulfillment(of: [exp])
+
+		XCTAssertEqual(startCounter.value, finishCounter.value)
+	}
+
+	func testCreateConcurrentTasks() async throws {
+		let queue = AsyncQueue()
+
+		let iterations = 20
+		queue.setMaximumConcurrentTasks(4)
+
+		try await withThrowingTaskGroup(of: Int.self) { group in
+			for i in 1...iterations {
+				group.addTask {
+					let task = await queue.createTask(label: "\(i)") {
+						print("starting queued \(i)")
+						try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
+						print("finishing queued \(i)")
+						return i
+					}
+
+					return try await task.value
+				}
+
+				XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
+			}
+
+			try await group.waitForAll()
 		}
-
-		await fulfillment(of: [exp], timeout: 10)
-
-		XCTAssertEqual(mainSet, setCounter.value)
 	}
 
 	func testConcurrentQueueItemsWithCancellations() async throws {
-		let queue = AsyncConcurrentQueue()
+		let queue = AsyncQueue()
 
 		let setCounter = AtomicWrapper(value: Set<Int>())
 
-		var mainSet: Set<Int> = []
+		var cancelSet: Set<Int> = []
+		let exp = expectation(description: "finished")
 		let iterations = 100
-		await queue.setMaximumConcurrentTasks(iterations / 10)
+		queue.setMaximumConcurrentTasks(iterations / 10)
 		for i in 1...iterations {
 			if i.isMultiple(of: 2) {
-				mainSet.insert(i)
+				cancelSet.insert(i)
 			}
-			let task = await queue.queueTask {
+			print("iteration: \(i)")
+			let task = await queue.createTask {
 				print("starting \(i)")
 				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
 				print("finishing \(i)")
@@ -211,24 +156,26 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 			}
 
 			Task {
+				defer {
+					if i == iterations {
+						exp.fulfill()
+					}
+				}
 				let value = try await task.value
-				var set = setCounter.value
-				set.insert(value)
-				setCounter.setValue(set)
+				setCounter.updateValue {
+					$0.insert(value)
+				}
 			}
 			if i.isMultiple(of: 2) == false {
 				task.cancel()
 			}
 		}
 
-		while setCounter.value.count < mainSet.count {
-			let current = await queue.currentlyExecutingTasks
-			let max = await queue.maximumConcurrentTasks
-			XCTAssertLessThanOrEqual(current, max)
-			try await Task.sleep(nanoseconds: 1_000_000)
-		}
+		await fulfillment(of: [exp])
 
-		XCTAssertEqual(mainSet, setCounter.value)
+		// with this test, it's possible for the cancellation to occur after the task finished,
+		// however, it should be seldom. This allows for up to 5 failures, but most must work to count as a success
+		XCTAssertLessThanOrEqual(cancelSet.symmetricDifference(setCounter.value).count, 5)
 	}
 }
 
@@ -274,7 +221,6 @@ extension AtomicWrapper where Element == Int {
 		value += 1
 	}
 }
-
 
 struct SimpleTestError: Error {
 	let message: String

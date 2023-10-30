@@ -3,97 +3,106 @@ import XCTest
 import AsyncQueue
 
 final class AsyncConcurrentQueueTests: XCTestCase {
-	func testQueueItems() async throws {
-//		let queue = AsyncConcurrentQueue()
-		let queue = AsyncQueue()
-
-		let counter = AtomicWrapper(value: [Int]())
-
-		let exp = expectation(description: "finished")
-		let iterations = 20
-		for i in 1...iterations {
-			let task = await queue.createTask {
-				print("starting queued \(i)")
-				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
-				print("finishing queued \(i)")
-				return i
-			}
-
-			Task {
-				let value = try await task.value
-				var arr = counter.value
-				arr.append(value)
-				counter.setValue(arr)
-				if value == iterations {
-					exp.fulfill()
-				}
-			}
-
-			print("Created queued task \(i)")
-		}
-
-		await fulfillment(of: [exp], timeout: 10)
-
-		XCTAssertEqual(counter.value, counter.value.sorted())
-	}
-
 	func testQueueTasks() async throws {
 		let queue = AsyncQueue()
 
-		let counter = AtomicWrapper(value: [Int]())
-
-		let iterations = 20
-
-		for i in 1...iterations {
-			let value = try await queue.queueTask {
-				print("starting queued \(i)")
-				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
-				print("finishing queued \(i)")
-				return i
-			}
-			var arr = counter.value
-			arr.append(value)
-			counter.setValue(arr)
-		}
-
-		XCTAssertEqual(counter.value, counter.value.sorted())
-	}
-
-	func testCreateTasks() async throws {
-		let queue = AsyncQueue()
-
-		let startOrder = AtomicWrapper(value: [Int]())
-		let finishOrder = AtomicWrapper(value: [Int]())
-
+		let startCounter = AtomicWrapper(value: [Int]())
+		let finishCounter = AtomicWrapper(value: [Int]())
 		let exp = expectation(description: "finished")
+
 		let iterations = 20
+
 		for i in 1...iterations {
-			let task = await queue.createTask {
-				startOrder.updateValue {
-					$0.append(i)
+			let valueTask = Task {
+				try await queue.performTask {
+					print("starting queued \(i)")
+					startCounter.updateValue {
+						$0.append(i)
+					}
+					try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
+					print("finishing queued \(i)")
+					XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
+					return i
 				}
-				print("starting queued \(i)")
-				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
-				print("finishing queued \(i)")
-				return i
 			}
+			XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
 
 			Task {
-				let value = try await task.value
-				finishOrder.updateValue {
+				XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
+				let value = try await valueTask.value
+				finishCounter.updateValue {
 					$0.append(value)
 				}
-
-				if finishOrder.value.count == iterations {
+				if finishCounter.value.count == iterations {
 					exp.fulfill()
 				}
 			}
 		}
 
-		await fulfillment(of: [exp], timeout: 10)
+		await fulfillment(of: [exp])
 
-		XCTAssertEqual(finishOrder.value, startOrder.value)
+		XCTAssertEqual(startCounter.value, finishCounter.value)
 	}
+
+	func testConcurrentQueueTasks() async throws {
+		let queue = AsyncQueue()
+
+		let iterations = 20
+		queue.setMaximumConcurrentTasks(4)
+
+		try await withThrowingTaskGroup(of: Int.self) { group in
+			for i in 1...iterations {
+				group.addTask {
+					try await queue.performTask(label: "\(i)") {
+						print("starting queued \(i)")
+						try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
+						print("finishing queued \(i)")
+						return i
+					}
+				}
+
+				XCTAssertLessThanOrEqual(queue.currentlyExecutingTasks, queue.maximumConcurrentTasks)
+			}
+
+			try await group.waitForAll()
+		}
+	}
+
+//	func testCreateTasks() async throws {
+//		let queue = AsyncQueue()
+//
+//		let startOrder = AtomicWrapper(value: [Int]())
+//		let finishOrder = AtomicWrapper(value: [Int]())
+//
+//		let exp = expectation(description: "finished")
+//		let iterations = 20
+//		for i in 1...iterations {
+//			let task = await queue.createTask {
+//				startOrder.updateValue {
+//					$0.append(i)
+//				}
+//				print("starting queued \(i)")
+//				try await Task.sleep(nanoseconds: UInt64(Double.random(in: 0.01...0.1) * 1_000_000_000))
+//				print("finishing queued \(i)")
+//				return i
+//			}
+//
+//			Task {
+//				let value = try await task.value
+//				finishOrder.updateValue {
+//					$0.append(value)
+//				}
+//
+//				if finishOrder.value.count == iterations {
+//					exp.fulfill()
+//				}
+//			}
+//		}
+//
+//		await fulfillment(of: [exp], timeout: 10)
+//
+//		XCTAssertEqual(finishOrder.value, startOrder.value)
+//	}
 
 
 //	func testConcurrentQueueItems2() async throws {

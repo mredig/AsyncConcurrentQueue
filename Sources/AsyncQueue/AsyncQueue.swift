@@ -1,9 +1,8 @@
 import Foundation
 
-public actor AsyncQueue {
-	private let continuationsLock = NSLock()
-//	private var continuations: [CheckedContinuation<Void, Error>] = []
-	private let continuations: ReferenceArray<CheckedContinuation<Void, Never>> = []
+public class AsyncQueue {
+	private let asyncLock = NSLock()
+	private var continuations: [CheckedContinuation<Void, Never>] = []
 
 	private var _maximumConcurrentTasks = 1
 
@@ -16,105 +15,119 @@ public actor AsyncQueue {
 		get { _maximumConcurrentTasks }
 		set {
 			_maximumConcurrentTasks = max(1, newValue)
-			bumpQueue()
 		}
 	}
 
 	/**
 	 It is what it says.
 	 */
-	public private(set) var currentlyExecutingTasks = 0 {
-		didSet {
-			bumpQueue()
-		}
-	}
+	public private(set) var currentlyExecutingTasks = 0
 
 	public init(maximumConcurrentTasks: Int = 1) {
 		self._maximumConcurrentTasks = maximumConcurrentTasks
 	}
 
-	public func queueTask<T>(_ task: () async throws -> T) async rethrows -> T {
-		if currentlyExecutingTasks < maximumConcurrentTasks {
-			return try await _doTheQueueTask(task)
+	private func canIncrementCurrentTasks(andDoIt flag: Bool = false) -> Bool {
+		asyncLock.lock()
+		defer { asyncLock.unlock() }
+		guard
+			currentlyExecutingTasks < maximumConcurrentTasks
+		else { return false }
+		if flag {
+			currentlyExecutingTasks += 1
+			_bumpQueue()
+		}
+		return true
+	}
+
+	private func decrementCurrentTasks() {
+		asyncLock.lock()
+		defer { asyncLock.unlock() }
+		guard
+			currentlyExecutingTasks > 0
+		else { fatalError("Called `decrementCurrentTasks` with no running tasks") }
+		currentlyExecutingTasks -= 1
+		_bumpQueue()
+	}
+
+	public func performTask<T>(label: String? = nil, _ task: () async throws -> T) async rethrows -> T {
+		if canIncrementCurrentTasks(andDoIt: true) {
+			defer { decrementCurrentTasks() }
+			return try await task()
 		} else {
+			label.map { print("delaying \($0)") }
 			async let delay: Void = withCheckedContinuation { continuation in
 				appendToContinuations(continuation)
 			}
 			bumpQueue()
 			await delay
-			return try await _doTheQueueTask(task)
+			defer { decrementCurrentTasks() }
+			return try await task()
 		}
 	}
 
-	private func _doTheQueueTask<T>(_ task: () async throws -> T) async rethrows -> T {
-		currentlyExecutingTasks += 1
-		defer { currentlyExecutingTasks -= 1 }
-		return try await task()
-	}
+//	private func _doTheQueueTask<T>(_ task: () async throws -> T) async rethrows -> T {
+//		currentlyExecutingTasks += 1
+//		defer { currentlyExecutingTasks -= 1 }
+//		return try await task()
+//	}
 
-	public func createTask<T>(_ block: @escaping @Sendable () async throws -> T) async -> Task<T, Error> {
-		if currentlyExecutingTasks < maximumConcurrentTasks {
-			currentlyExecutingTasks += 1
-			let finalTask = Task {
-				try await block()
-			}
-			Task {
-				_ = await finalTask.result
-				currentlyExecutingTasks -= 1
-			}
-			return finalTask
-		} else {
-			let delayTask = Task {
-				await withCheckedContinuation { continuation in
-					appendToContinuations(continuation)
-				}
-			}
-			let finalTask = Task {
-				_ = await delayTask.result
-				return try await _doTheQueueTask(block)
-			}
+//	public func createTask<T>(_ block: @escaping @Sendable () async throws -> T) async -> Task<T, Error> {
+//		if currentlyExecutingTasks < maximumConcurrentTasks {
+//			currentlyExecutingTasks += 1
+//			let finalTask = Task {
+//				try await block()
+//			}
+//			Task {
+//				_ = await finalTask.result
+//				currentlyExecutingTasks -= 1
+//			}
+//			return finalTask
+//		} else {
+//			let delayTask = Task {
+//				await withCheckedContinuation { continuation in
+//					appendToContinuations(continuation)
+//				}
+//			}
+//			let finalTask = Task {
+//				_ = await delayTask.result
+//				return try await _doTheQueueTask(block)
+//			}
+//
+//			bumpQueue()
+//			return finalTask
+//		}
+//	}
 
-			bumpQueue()
-			return finalTask
-		}
-	}
-
-	nonisolated
 	private func appendToContinuations(_ continuation: CheckedContinuation<Void, Never>) {
-		continuationsLock.lock()
-		continuations.array.append(continuation)
-		continuationsLock.unlock()
+		asyncLock.lock()
+		defer { asyncLock.unlock() }
+		continuations.append(continuation)
 	}
 
 	private func bumpQueue() {
-		if currentlyExecutingTasks < maximumConcurrentTasks {
-			continuationsLock.lock()
-			if let continuation = continuations.array.first {
-				continuations.array.removeFirst()
-				continuationsLock.unlock()
-				continuation.resume()
-			} else {
-				continuationsLock.unlock()
-			}
-		}
+		asyncLock.lock()
+		defer { asyncLock.unlock() }
+		_bumpQueue()
+	}
+	private func _bumpQueue() {
+		guard
+			currentlyExecutingTasks < maximumConcurrentTasks,
+			let continuation = continuations.first
+		else { return }
+
+		continuations.removeFirst()
+		continuation.resume()
+		currentlyExecutingTasks += 1
 	}
 
 	/**
 	 Update the value of `maximumConcurrentTasks`. If provided with a value below `1`, it will be reset to `1`.
 	 */
 	public func setMaximumConcurrentTasks(_ value: Int) {
+		asyncLock.lock()
+		defer { asyncLock.unlock() }
 		maximumConcurrentTasks = value
-	}
-
-	private class ReferenceArray<Element>: ExpressibleByArrayLiteral {
-		var array: [Element]
-
-		init(array: [Element]) {
-			self.array = array
-		}
-
-		convenience init(arrayLiteral elements: Element...) {
-			self.init(array: elements)
-		}
+		_bumpQueue()
 	}
 }

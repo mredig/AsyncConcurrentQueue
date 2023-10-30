@@ -19,11 +19,11 @@ Task {
 	let queue = AsyncConcurrentQueue()
 	
 	// set how many tasks may run concurrently
-	await queue.setMaximumConcurrentTasks(5)
+	queue.setMaximumConcurrentTasks(5)
 	
 	// feed it a bunch of tasks to perform.
 	for i in 1...20 {
-		let task = await queue.queueTask {
+		let task = await queue.createTask {
 			print("starting \(i)")
 			try await Task.sleep(for: .seconds(Double.random(in: 0.5...2)))
 			print("finishing \(i)")

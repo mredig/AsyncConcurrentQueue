@@ -70,3 +70,6 @@ Task {
 	futureTask.activate()
 }
 ```
+### A note on FIFO
+
+The current implementation is pretty poor at handling FIFO when tasks are added in quick succession. My future plan is to add sync methods for adding tasks, taking in async closures (similar to now), but to revamp the internals to just immediately append the tasks to an array. This would solidify the order. THEN the async system would one by one retrieve the first element of the array to create the async tasks. (That's the plan, at least. There will be several challenges, like maintaining the generic return value of the queued tasks, but that's a problem for Monday Michael.)

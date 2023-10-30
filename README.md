@@ -2,7 +2,12 @@
 
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fmredig%2FAsyncConcurrentQueue%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/mredig/AsyncConcurrentQueue) [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fmredig%2FAsyncConcurrentQueue%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/mredig/AsyncConcurrentQueue)
 
-A FIFO queuing system leveraging Swift's async/await structured concurrency. Also includes `FutureTask` which allows you to arbitrairily delay/start a task.
+A mostly\* FIFO queuing system leveraging Swift's async/await structured concurrency. Also includes `FutureTask` which allows you to arbitrairily delay/start a task.
+
+<style>.foootnote { font-size: 0.6em; }</style>
+<span class="foootnote">\*mostly: async/await is utilized to append tasks to the queue, so, if several tasks are appended in quick succession, we are at the whims of async/await to order things correctly. However, the start\*\* order is guaranteed once the task is added.</span>
+
+<span class="foootnote">\*\*started: if the queue allows multiple concurrent tasks, shorter tasks started after a longer task will likely finish prior to the longer, first task.</span>
 
 ### Usage
 ```swift

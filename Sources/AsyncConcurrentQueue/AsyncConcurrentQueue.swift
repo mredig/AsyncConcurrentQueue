@@ -50,7 +50,7 @@ public class AsyncConcurrentQueue {
 		_bumpQueue()
 	}
 
-	public func performTask<T>(label: String? = nil, _ task: () async throws -> T) async rethrows -> T {
+	public func performTask<T>(label: String? = nil, _ task: () async throws -> T) async throws -> T {
 		if canIncrementCurrentTasks(andDoIt: true) {
 			defer { decrementCurrentTasks() }
 			return try await task()
@@ -62,6 +62,7 @@ public class AsyncConcurrentQueue {
 			bumpQueue()
 			await delay
 			defer { decrementCurrentTasks() }
+			try Task.checkCancellation()
 			return try await task()
 		}
 	}
@@ -83,6 +84,7 @@ public class AsyncConcurrentQueue {
 			let finalTask = Task {
 				_ = await delayTask.result
 				defer { decrementCurrentTasks() }
+				try Task.checkCancellation()
 				let rVal = try await block()
 				return rVal
 			}

@@ -249,18 +249,30 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 		let queue = AsyncConcurrentQueue(maximumConcurrentTasks: 15)
 
 		let expA = expectation(description: "Finished")
+		expA.assertForOverFulfill = false
 		let expB = expectation(description: "Finished")
 
 		let results = AtomicWrapper(value: (cancellations: 0, successes: 0, bSuccesses: 0))
 
+		let sync = AtomicWrapper(value: 0)
+
 		let taskA = Task {
 			try await withThrowingTaskGroup(of: Void.self) { group in
-				while Task.isCancelled == false {
-					_ = group.addTaskUnlessCancelled {
+				let fulfilled = AtomicWrapper(value: false)
+				while fulfilled.value == false {
+					group.addTask {
 						try await queue.performTask {
 							try await withTaskCancellationHandler(
 								operation: {
-									try await Task.sleep(nanoseconds: 20_000_000)
+									sync.updateValue {
+										$0 += 1
+									}
+									defer {
+										sync.updateValue {
+											$0 -= 1
+										}
+									}
+									try await Task.sleep(nanoseconds: 2_000_000)
 									try Task.checkCancellation()
 									print("testa success")
 									results.updateValue {
@@ -272,11 +284,14 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 									results.updateValue {
 										$0.cancellations += 1
 									}
-									expA.assertForOverFulfill = false
 									expA.fulfill()
+									fulfilled.updateValue({
+										$0 = true
+									})
 								})
 						}
 					}
+					try Task.checkCancellation()
 				}
 
 				try await group.waitForAll()
@@ -285,13 +300,14 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 
 		Task {
 			defer { expB.fulfill() }
+			try await Task.sleep(nanoseconds: 500)
 			try await withThrowingTaskGroup(of: Void.self) { group in
 				for _ in 0..<200 {
 					group.addTask {
 						try await queue.performTask {
 							try await withTaskCancellationHandler(
 								operation: {
-									try await Task.sleep(nanoseconds: 20_000_000)
+									try await Task.sleep(nanoseconds: 2_000_000)
 									try Task.checkCancellation()
 									print("testb success")
 									results.updateValue {
@@ -313,8 +329,15 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 			}
 		}
 
-		try await Task.sleep(nanoseconds: 15_000_000)
-		taskA.cancel()
+		_ = await Task {
+			while true {
+				try await Task.sleep(nanoseconds: 200)
+				if sync.value > 1 {
+					taskA.cancel()
+					break
+				}
+			}
+		}.result
 
 		await fulfillment(of: [expA, expB])
 

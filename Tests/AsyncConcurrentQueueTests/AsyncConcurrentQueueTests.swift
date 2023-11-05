@@ -176,6 +176,150 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 		// however, it should be seldom. This allows for up to 5 failures, but most must work to count as a success
 		XCTAssertLessThanOrEqual(cancelSet.symmetricDifference(setCounter.value).count, 5)
 	}
+
+	/// Check that cancelling one queued item doesn't cancel others
+	func testCancellations() async throws {
+		let queue = AsyncConcurrentQueue(maximumConcurrentTasks: 15)
+
+		let exp = expectation(description: "Finished")
+
+		let results = AtomicWrapper(value: (oddCancellations: 0, evenSuccesses: 0))
+
+		try await withThrowingTaskGroup(of: Void.self) { group in
+			for index in 0..<200 {
+				if index.isMultiple(of: 2) {
+					group.addTask {
+						try await queue.performTask {
+							try await withTaskCancellationHandler(
+								operation: {
+									try await Task.sleep(nanoseconds: 20_000_000)
+									try Task.checkCancellation()
+									print("even success")
+									results.updateValue {
+										$0.evenSuccesses += 1
+									}
+								},
+								onCancel: {
+									print("even cancelled")
+									results.updateValue {
+										$0.evenSuccesses -= 1
+									}
+								})
+						}
+					}
+				} else {
+					group.addTask {
+						let wrapper = AtomicWrapper<Task<Void, Error>?>(value: nil)
+						let task = await queue.createTask {
+							try await withTaskCancellationHandler(
+								operation: {
+									try await Task.sleep(nanoseconds: 20_000_000)
+									wrapper.value?.cancel()
+									try Task.checkCancellation()
+									print("odd success")
+									results.updateValue {
+										$0.oddCancellations -= 1
+									}								},
+								onCancel: {
+									print("odd cancelled")
+									results.updateValue {
+										$0.oddCancellations += 1
+									}
+								})
+						}
+						wrapper.updateValue({
+							$0 = task
+						})
+					}
+				}
+			}
+
+			try await group.waitForAll()
+			exp.fulfill()
+		}
+
+		await fulfillment(of: [exp])
+
+		XCTAssertEqual(100, results.value.evenSuccesses)
+		XCTAssertEqual(100, results.value.oddCancellations)
+	}
+
+	/// Check that cancelling a parent task affects queued tasks
+	func testCancellations2() async throws {
+		let queue = AsyncConcurrentQueue(maximumConcurrentTasks: 15)
+
+		let expA = expectation(description: "Finished")
+		let expB = expectation(description: "Finished")
+
+		let results = AtomicWrapper(value: (cancellations: 0, successes: 0))
+
+		let taskA = Task {
+			defer { expA.fulfill() }
+			try await withThrowingTaskGroup(of: Void.self) { group in
+				for _ in 0..<200 {
+					group.addTask {
+						try await queue.performTask {
+							try await withTaskCancellationHandler(
+								operation: {
+									try await Task.sleep(nanoseconds: 20_000_000)
+									try Task.checkCancellation()
+									print("testa success")
+									results.updateValue {
+										$0.successes += 1
+									}
+								},
+								onCancel: {
+									print("testa cancelled")
+									results.updateValue {
+										$0.cancellations += 1
+									}
+								})
+						}
+					}
+				}
+
+				try await group.waitForAll()
+			}
+		}
+
+		Task {
+			defer { expB.fulfill() }
+			try await withThrowingTaskGroup(of: Void.self) { group in
+				for _ in 0..<200 {
+					group.addTask {
+						try await queue.performTask {
+							try await withTaskCancellationHandler(
+								operation: {
+									try await Task.sleep(nanoseconds: 20_000_000)
+									try Task.checkCancellation()
+									print("testb success")
+									results.updateValue {
+										$0.successes += 1
+									}
+								},
+								onCancel: {
+									print("testb cancelled")
+									results.updateValue {
+										$0.cancellations += 1
+									}
+								})
+						}
+					}
+				}
+
+				try await group.waitForAll()
+			}
+		}
+
+		try await Task.sleep(nanoseconds: 15_000_000)
+		taskA.cancel()
+
+		await fulfillment(of: [expA, expB])
+
+		XCTAssertGreaterThan(results.value.successes, 0)
+		XCTAssertGreaterThan(results.value.cancellations, 0)
+	}
+
 }
 
 class AtomicWrapper<Element>: @unchecked Sendable {

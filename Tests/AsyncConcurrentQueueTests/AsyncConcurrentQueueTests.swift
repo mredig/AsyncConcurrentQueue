@@ -251,13 +251,12 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 		let expA = expectation(description: "Finished")
 		let expB = expectation(description: "Finished")
 
-		let results = AtomicWrapper(value: (cancellations: 0, successes: 0))
+		let results = AtomicWrapper(value: (cancellations: 0, successes: 0, bSuccesses: 0))
 
 		let taskA = Task {
-			defer { expA.fulfill() }
 			try await withThrowingTaskGroup(of: Void.self) { group in
-				for _ in 0..<200 {
-					group.addTask {
+				while Task.isCancelled == false {
+					_ = group.addTaskUnlessCancelled {
 						try await queue.performTask {
 							try await withTaskCancellationHandler(
 								operation: {
@@ -273,6 +272,8 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 									results.updateValue {
 										$0.cancellations += 1
 									}
+									expA.assertForOverFulfill = false
+									expA.fulfill()
 								})
 						}
 					}
@@ -295,6 +296,7 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 									print("testb success")
 									results.updateValue {
 										$0.successes += 1
+										$0.bSuccesses += 1
 									}
 								},
 								onCancel: {
@@ -318,6 +320,7 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 
 		XCTAssertGreaterThan(results.value.successes, 0)
 		XCTAssertGreaterThan(results.value.cancellations, 0)
+		XCTAssertEqual(results.value.bSuccesses, 200)
 	}
 
 }

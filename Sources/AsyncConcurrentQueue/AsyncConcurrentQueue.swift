@@ -134,9 +134,16 @@ public class AsyncConcurrentQueue {
 	}
 	private func _bumpQueue() {
 		guard
-			currentlyExecutingTasks < maximumConcurrentTasks,
-			let continuation = continuations.first
+			currentlyExecutingTasks < maximumConcurrentTasks
 		else { return }
+		guard
+			let continuationPriority = continuations.first
+		else {
+			// queue has completed
+			waitingOnQueueContinuations.forEach { $0.resume() }
+			waitingOnQueueContinuations = []
+			return
+		}
 
 		continuations.removeFirst()
 		continuationPriority.continuation.resume()
@@ -151,5 +158,14 @@ public class AsyncConcurrentQueue {
 		defer { asyncLock.unlock() }
 		maximumConcurrentTasks = value
 		_bumpQueue()
+	}
+
+	public func waitForAllTasks() async {
+		async let waiting: Void = withCheckedContinuation { continuation in
+			waitingOnQueueContinuations.append(continuation)
+		}
+
+		bumpQueue()
+		await waiting
 	}
 }

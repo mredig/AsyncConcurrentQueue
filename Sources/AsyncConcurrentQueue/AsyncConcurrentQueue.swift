@@ -2,7 +2,13 @@ import Foundation
 
 public class AsyncConcurrentQueue {
 	private let asyncLock = NSLock()
-	private var continuations: [CheckedContinuation<Void, Never>] = []
+	private var continuations: [ContinuationPriority] = []
+	private struct ContinuationPriority {
+		let priority: Double
+		let continuation: CheckedContinuation<Void, Never>
+	}
+
+	private var waitingOnQueueContinuations: [CheckedContinuation<Void, Never>] = []
 
 	private var _maximumConcurrentTasks = 1
 
@@ -24,7 +30,7 @@ public class AsyncConcurrentQueue {
 	public private(set) var currentlyExecutingTasks = 0
 
 	public init(maximumConcurrentTasks: Int = 1) {
-		self._maximumConcurrentTasks = maximumConcurrentTasks
+		self._maximumConcurrentTasks = max(maximumConcurrentTasks, 1)
 	}
 
 	private func canIncrementCurrentTasks(andDoIt flag: Bool = false) -> Bool {
@@ -50,14 +56,18 @@ public class AsyncConcurrentQueue {
 		_bumpQueue()
 	}
 
-	public func performTask<T>(label: String? = nil, _ task: () async throws -> T) async throws -> T {
+	public func performTask<T>(
+		label: String? = nil,
+		withPriority priority: Double = 1,
+		_ task: () async throws -> T
+	) async throws -> T {
 		if canIncrementCurrentTasks(andDoIt: true) {
 			defer { decrementCurrentTasks() }
 			return try await task()
 		} else {
 			label.map { print("delaying \($0)") }
 			async let delay: Void = withCheckedContinuation { continuation in
-				appendToContinuations(continuation)
+				appendToContinuations(continuation, withPriority: priority)
 			}
 			bumpQueue()
 			await delay
@@ -67,7 +77,11 @@ public class AsyncConcurrentQueue {
 		}
 	}
 
-	public func createTask<T>(label: String? = nil, _ block: @escaping @Sendable () async throws -> T) async -> Task<T, Error> {
+	public func createTask<T>(
+		label: String? = nil,
+		withPriority priority: Double = 1,
+		_ block: @escaping @Sendable () async throws -> T
+	) async -> Task<T, Error> {
 		if canIncrementCurrentTasks(andDoIt: true) {
 			return Task {
 				defer { decrementCurrentTasks() }
@@ -78,7 +92,7 @@ public class AsyncConcurrentQueue {
 			label.map { print("delaying \($0)") }
 			let delayTask = Task {
 				await withCheckedContinuation { continuation in
-					appendToContinuations(continuation)
+					appendToContinuations(continuation, withPriority: priority)
 				}
 			}
 			let finalTask = Task {
@@ -94,10 +108,23 @@ public class AsyncConcurrentQueue {
 		}
 	}
 
-	private func appendToContinuations(_ continuation: CheckedContinuation<Void, Never>) {
+	private func appendToContinuations(_ continuation: CheckedContinuation<Void, Never>, withPriority priority: Double) {
 		asyncLock.lock()
 		defer { asyncLock.unlock() }
-		continuations.append(continuation)
+		let contPriority = ContinuationPriority(priority: priority, continuation: continuation)
+
+		guard continuations.isEmpty == false else {
+			return continuations.append(contPriority)
+		}
+		var index = continuations.endIndex - 1
+		while continuations[index].priority < priority {
+			index -= 1
+			guard index >= continuations.startIndex else {
+				break
+			}
+		}
+		index += 1
+		continuations.insert(contPriority, at: index)
 	}
 
 	private func bumpQueue() {
@@ -112,7 +139,7 @@ public class AsyncConcurrentQueue {
 		else { return }
 
 		continuations.removeFirst()
-		continuation.resume()
+		continuationPriority.continuation.resume()
 		currentlyExecutingTasks += 1
 	}
 

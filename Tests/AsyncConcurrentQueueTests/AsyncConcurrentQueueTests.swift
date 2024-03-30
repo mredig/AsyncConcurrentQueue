@@ -346,6 +346,43 @@ final class AsyncConcurrentQueueTests: XCTestCase {
 		XCTAssertEqual(results.value.bSuccesses, 200)
 	}
 
+	func testPriorities() async throws {
+		let arrWrapper = AtomicWrapper(value: [Double]())
+
+		let queue = AsyncConcurrentQueue(maximumConcurrentTasks: 1)
+
+		_ = await queue.createTask(label: "blocker", withPriority: 2) {
+			try await Task.sleep(for: .seconds(3))
+		}
+
+		var lastValue: Double = 0
+		for _ in 0..<1000 {
+			let useLast = Int.random(in: 0..<50) == 0
+			let value: Double
+			defer { lastValue = value }
+			if useLast {
+				value = lastValue
+			} else {
+				value = Double.random(in: 0...9999)
+			}
+			_ = await queue.createTask(withPriority: value, {
+				arrWrapper.updateValue {
+					$0.append(value)
+				}
+			})
+		}
+
+		let exp = expectation(description: "finished")
+
+		_ = await queue.createTask(withPriority: -10) {
+			exp.fulfill()
+		}
+
+		await fulfillment(of: [exp], timeout: 10)
+
+		let sorted = arrWrapper.value.sorted(by: { $0 > $1 })
+		XCTAssertEqual(sorted, arrWrapper.value)
+	}
 }
 
 class AtomicWrapper<Element>: @unchecked Sendable {
